@@ -1,0 +1,521 @@
+---
+title: "Training Dataset Match"
+output:
+  word_document: default
+  html_document: default
+---
+
+### Dataset Generation
+
+There are datasets provided in the original and updated versions of the main paper, but the data objects don't quite match the data in the training data inside the full_models.RData file. This file matches said datasets.
+
+### Libraries
+
+```{r message=FALSE}
+# doMC for speed benefits, running foreach loops in parallel
+library(knitr)
+library(doMC)
+registerDoMC(cores = detectCores()) 
+options("mc.cores" = detectCores())
+library(pwr)
+library(pander)
+library(caret)
+library(data.table)
+options(stringsAsFactors=FALSE)
+library(readr)
+library(data.table)
+library(pwr)
+library(dplyr)
+source("functions.R")
+library(glmnet)
+library(arsenal)
+library(readxl)
+```
+
+
+### SSRP related things, not used in current version.
+
+```{r eval=FALSE, eval=FALSE}
+
+# This is for the ssrp_predictions update, which was what I first was trying to work with, not being used in most recent version of things/doesn't need to be ran
+
+data <- data.table(read_xlsx("ssrp_data.xlsx", na="N/A"))
+# From the SSRP replication the second time, 2017-04-27 (FOR SSRP)
+# Match author data using same procedure as in merge_data.R
+authors <- data.table(read_xlsx("authors.xlsx", na="N/A"))
+setkey(authors, study_id, study_type, author_order)
+
+# `author_data.csv` includes info information on all authors (citations etc)
+author_data <- data.table(read.csv("author_data.csv", sep = ";",
+                                   fileEncoding = "macroman"))
+setkey(author_data, author_id) # one row per author
+
+# Add variables for number of authors
+n_authors.o <- unique(authors[study_type=="o", .(study_id, n_authors)])
+names(n_authors.o) <- c("id", "n_authors.o")
+n_authors.r <- unique(authors[study_type=="r", .(study_id, n_authors)])
+names(n_authors.r) <- c("id", "n_authors.r")
+
+# Merging the authors (original and replicated) into same dataset
+data <- merge(data, merge(n_authors.o, n_authors.r, by="id"), by="id")
+
+
+
+# For each study, find the relevant authors
+for (id in data$id) {
+
+    # loop over replication and original studies
+    for (type in c("o", "r")) {
+
+
+        study_authors <- authors[study_id == id & study_type == type, author_id]
+        if (length(study_authors) > 0 & study_authors[1] != "") {
+            # Instead of saving individual author info in the data file do the aggregation directly
+
+            # Average citations
+            data[id, paste0("author_citations_avg.", type) :=
+                 mean(author_data[study_authors, citations], na.rm=TRUE)]
+
+            # Citations of most cited author
+            data[id, paste0("author_citations_max.", type) :=
+                 max(author_data[study_authors, citations])]
+
+            # Gender ratio (percent male)
+            data[id, paste0("authors_male.", type) :=
+                 mean(author_data[study_authors, gender] == "M", na.rm=TRUE)]
+
+            # Highest seniority (highest seniority on project)
+            seniority_order <- c("Professor", "Associate Professor",
+                                 "Assistant Professor", "Researcher",
+                                 "Lecturer", "Assistant", "Other")
+            data[id, paste0("highest_seniority.", type) :=
+                 seniority_order[seniority_order %in%
+                                 author_data[study_authors, position]][1]]
+        }
+    }
+}
+
+# Generate some variables
+
+# Same country and language
+# Binary variables created for having the same country, language, online, and subjects
+data[, same_country := ifelse(experiment_country.o == experiment_country.r, 1, 0)]
+data[, same_language := ifelse(experiment_language.o == experiment_language.r, 1, 0)]
+data[, same_online := ifelse(online.o == online.r, 1, 0)]
+data[, same_subjects := ifelse(subjects.o == subjects.r, 1, 0)]
+
+# US original/replication
+data[, us_lab.o := ifelse(experiment_country.o == "United States", 1, 0)]
+data[, us_lab.r := ifelse(experiment_country.r == "United States", 1, 0)]
+
+# Original power
+
+newdata <- readRDS('newdata.rds')
+data$power.o <- vector("numeric", length = nrow(data))
+for (i in 1:nrow(data)) {
+    set(data, i = i, j = "power.o",
+        value = pwr.r.test(n = data[i, n_groups.o],
+                           r = data[i, effect_size.o],
+                           power = NULL, sig.level = 0.05)$power)
+
+    set(data, i = i, j = "es_80power1",
+        value = pwr.r.test(n = newdata$n_groups_planned1.r[i],
+                           r = NULL, sig.level = 0.05, power = 0.8)$r)
+
+    set(data, i = i, j = "es_80power2",
+        value = pwr.r.test(n = newdata$n_groups_planned2.r[i],
+                           r = NULL, sig.level = 0.05, power = 0.8)$r)
+}
+
+# Increased to 53 variables at this point
+
+# We need to create factors of all categorical variables and make sure that the
+# levels are the same as in the original data set for the predictions to work
+olddata <- readRDS("data.rds")
+# remove parts of data set that we don't use so that factor levels are correct
+olddata <- olddata[aggregated == TRUE | is.na(aggregated)]
+olddata <- olddata[drop == FALSE]
+
+# Since we don't have any replication results yet we fill with random
+if (all(is.na(data$replicated))) data$replicated <- rep_len(c(0,1), nrow(data))
+if (all(is.na(data$relative_es))) data$relative_es <- rep_len(c(0,1), nrow(data))
+
+# ssrp.12 is really "Education" but we dont have any training data on this
+# discipline, so "Cognitive" is closest
+data$discipline[data$discipline == "Education"] <- "Cognitive"
+
+# Creating factors with the correct levels (taken from original data)
+data$replicated <- factor(data$replicated)
+levels(data$replicated) <- c("not_replicated", "replicated")
+data$discipline <- factor(data$discipline, levels = levels(olddata$discipline))
+data$effect_type.o <- factor(data$effect_type.o, levels = levels(as.factor(olddata$effect_type.o)))
+data$compensation.o <- factor(data$compensation.o, levels = levels(as.factor(olddata$compensation.o)))
+data$compensation.r <- factor(data$compensation.r, levels = levels(as.factor(olddata$compensation.r)))
+
+lvls <- c("Assistant", "Assistant Professor", "Associate Professor", "Professor", "Researcher")
+data$highest_seniority.r <- factor(data$highest_seniority.r, levels = lvls)
+data$highest_seniority.o <- factor(data$highest_seniority.o, levels = lvls)
+
+# These variables are categorical but not used in model, so we don't save them as factors
+# For example subjects.o has the incorrect levels so will create NA's
+# data$subjects.o <- factor(data$subjects.o, levels = levels(as.factor(olddata$subjects.o)))
+# data$subjects.r <- factor(data$subjects.r, levels = levels(as.factor(olddata$subjects.r)))
+# data$experiment_country.o <- factor(data$experiment_country.o, levels = levels(as.factor(olddata$experiment_country.o)))
+# data$experiment_country.r <- factor(data$experiment_country.r, levels = levels(as.factor(olddata$experiment_country.r)))
+# data$experiment_language.o <- factor(data$experiment_language.o, levels = levels(as.factor(olddata$experiment_language.o)))
+# data$experiment_language.r <- factor(data$experiment_language.r, levels = levels(as.factor(olddata$experiment_language.r)))
+
+################################################################################
+
+# Save data as csv and RDS
+write.csv(data, "newdata2.csv", row.names = FALSE, na = "",
+          fileEncoding = "UTF-8")
+saveRDS(data, "newdata2.rds")
+
+```
+
+### Matching the Training Dataset
+
+```{r generating_data_to_match_training_data, echo=FALSE}
+
+# Getting same 131 obs on 35 variables (outcome omitted in initial runthrough)
+
+# For reference, so I could check back and look through/explore datasets when needed
+olddata <- readRDS('data.rds')
+data2 <- readRDS("data.rds")
+
+# We only use the aggregated ML data
+data2 <- data2[aggregated == TRUE | is.na(aggregated)]
+data2 <- data2[drop == FALSE] # droplist
+# Additional columns added, a handful of these were not included in training data and I dropped those to match
+drop_cols <- c("title", "authors.o", "journal", "volume", "issue",
+               "aggregated", "lab_id", "drop", "experiment_country.o",
+               "experiment_country.r", "experiment_language.o",
+               "experiment_language.r", "online.o", "online.r", "subjects.o",
+               "subjects.r", "n_planned.r", "endprice", "project", "author_citations_avg.o",   
+               "seniority.o", "author_citations_avg.r")
+data2[, (drop_cols) := NULL]
+
+# Training Data uses binary variables for each level of the factors, later converted these into said versions
+data2$seniority.r <- as.factor(data2$seniority.r)
+data2$effect_type <- as.factor(data2$effect_type)
+data2$compensation.o <- as.factor(data2$compensation.o)
+data2$compensation.r <- as.factor(data2$compensation.r)
+data2$replicated <- factor(data2$replicated)
+levels(data2$replicated) <- c("not_replicated", "replicated")
+
+# Renaming so I can reuse some things later, binary outcome set first
+data_outcome <- data2
+# Remove post-replication variables and relative_es (relative in separate set)
+data_outcome %>% select(-c("pub_year", "id", "effect_size.r", "p_value.r", "n.r", "power.r",
+    "transactions", "trading_volume", "relative_es"))
+
+# data_outcome now matches fit_class.lasso$trainingdata
+data_outcome <- data_outcome
+
+# Adding the binary versions of each factor level, removing variables not seen in the training data in their models, and reordering to match the training data.
+data_outcome <- data_outcome %>% mutate(disciplineCognitive = ifelse(discipline == 'Cognitive', 1, 0),
+                                 disciplineEconomics = ifelse(discipline == 'Economics', 1, 0),
+                                 disciplineSocial = ifelse(discipline == 'Social', 1, 0),
+                                 effect_type.ointeraction = ifelse(effect_type == 'interaction', 1, 0),
+                                 effect_type.omaineffect = ifelse(effect_type == 'main effect', 1, 0),
+                                 compensation.ocredit = ifelse(compensation.o == 'credit', 1, 0),
+                                 compensation.omixed = ifelse(compensation.o == 'mixed', 1, 0),
+                                 compensation.onothing = ifelse(compensation.o == 'nothing', 1, 0),
+                                 compensation.rcredit = ifelse(compensation.r == 'credit', 1, 0),
+                                 compensation.rmixed = ifelse(compensation.r == 'mixed', 1, 0),
+                                 compensation.rnothing = ifelse(compensation.r == 'nothing', 1, 0),
+                                 highest_seniority.rAssistantProfessor = ifelse(seniority.r == 'Assistant Professor', 1, 0),
+                                 highest_seniority.rAssociateProfessor = ifelse(seniority.r == 'Associate Professor', 1, 0),
+                                 highest_seniority.rProfessor = ifelse(seniority.r == 'Professor', 1, 0),
+                                 highest_seniority.rResearcher = ifelse(seniority.r == 'Researcher', 1, 0),
+                                 outcome = replicated) %>%
+                   # Getting rid of variables we just created binary versions for
+                   select(-c('discipline', 'effect_type', 'compensation.o', 'compensation.r', 'replicated',
+                             'seniority.r')) %>%
+                   # Reordering to match trainingdata
+                   select('disciplineCognitive', 'disciplineEconomics', 'disciplineSocial', 'length', 'citations',
+                          'effect_size.o', 'p_value.o', 'n.o', 'effect_type.ointeraction', 'effect_type.omaineffect',
+                          'power.o', 'compensation.ocredit', 'compensation.omixed', 'compensation.onothing',
+                          'compensation.rcredit', 'compensation.rmixed', 'compensation.rnothing', 'n_authors.o',
+                          'n_authors.r', 'author_citations_max.o', 'authors_male.o', 'author_citations_max.r',
+                          'authors_male.r', 'highest_seniority.rAssistantProfessor', 
+                          'highest_seniority.rAssociateProfessor', 'highest_seniority.rProfessor',
+                          'highest_seniority.rResearcher', 'es_80power', 'same_country',
+                          'same_language', 'same_online' , 'same_subjects', 'us_lab.o', 'us_lab.r', 'outcome')
+
+load('full_models.RData')
+ds1 <- fit_class.lasso$trainingData
+ds2 <- data_outcome
+summary(comparedf(ds1, ds2))
+# The 8 non-shared variables are slight differences in names, such as .outcome vs outcome, and Assistant Professor vs AssistantProfessoor
+# One additional difference is that in the training data there is a value of -0.247 for effect_size.o, while every other value is positive. Following similar dataset generating procedures as their own, we get it as a positive along with the rest of the values for effect_size.o, which seems like an error in their generation procedures.
+
+
+```
+
+### Relative Version of the Same Dataset
+
+```{r echo=FALSE}
+# Relative version of set for separate lasso testing
+
+data_r <- data2
+# Remove post-replication variables 
+data_r <- data_r %>% select(-c("pub_year", "id", "effect_size.r", "p_value.r", "n.r", "power.r",
+    "transactions", "trading_volume"))
+
+data_r <- copy(data_r) 
+
+# Adding the binary versions of each factor level, removing variables not seen in the training data in their models, and reordering to match the training data, relative version instead of outcome
+data_r <- data_r %>% mutate(disciplineCognitive = ifelse(discipline == 'Cognitive', 1, 0),
+                                 disciplineEconomics = ifelse(discipline == 'Economics', 1, 0),
+                                 disciplineSocial = ifelse(discipline == 'Social', 1, 0),
+                                 effect_type.ointeraction = ifelse(effect_type == 'interaction', 1, 0),
+                                 effect_type.omaineffect = ifelse(effect_type == 'main effect', 1, 0),
+                                 compensation.ocredit = ifelse(compensation.o == 'credit', 1, 0),
+                                 compensation.omixed = ifelse(compensation.o == 'mixed', 1, 0),
+                                 compensation.onothing = ifelse(compensation.o == 'nothing', 1, 0),
+                                 compensation.rcredit = ifelse(compensation.r == 'credit', 1, 0),
+                                 compensation.rmixed = ifelse(compensation.r == 'mixed', 1, 0),
+                                 compensation.rnothing = ifelse(compensation.r == 'nothing', 1, 0),
+                                 highest_seniority.rAssistantProfessor = ifelse(seniority.r == 'Assistant Professor', 1, 0),
+                                 highest_seniority.rAssociateProfessor = ifelse(seniority.r == 'Associate Professor', 1, 0),
+                                 highest_seniority.rProfessor = ifelse(seniority.r == 'Professor', 1, 0),
+                                 highest_seniority.rResearcher = ifelse(seniority.r == 'Researcher', 1, 0),
+                                 relative = relative_es) %>%
+                   select(-c('discipline', 'effect_type', 'compensation.o', 'compensation.r', 'replicated',
+                             'seniority.r')) %>%
+                   select('disciplineCognitive', 'disciplineEconomics', 'disciplineSocial', 'length', 'citations',
+                          'effect_size.o', 'p_value.o', 'n.o', 'effect_type.ointeraction', 'effect_type.omaineffect',
+                          'power.o', 'compensation.ocredit', 'compensation.omixed', 'compensation.onothing',
+                          'compensation.rcredit', 'compensation.rmixed', 'compensation.rnothing', 'n_authors.o',
+                          'n_authors.r', 'author_citations_max.o', 'authors_male.o', 'author_citations_max.r',
+                          'authors_male.r', 'highest_seniority.rAssistantProfessor', 
+                          'highest_seniority.rAssociateProfessor', 'highest_seniority.rProfessor',
+                          'highest_seniority.rResearcher', 'es_80power', 'same_country',
+                          'same_language', 'same_online' , 'same_subjects', 'us_lab.o', 'us_lab.r', 'relative')
+
+
+
+```
+
+### Matching/Diagnostics
+Their dataset is unavailable, the most I can find is an Rdata file with the final models they built, but the actual data they use to train on isn't available. I have a matched training dataset, built from looking into their second set of replication in the SSRP code details, but that is far as I can get with what they have posted. I plan on talking about this specifically in the report, but until then I'm going to do diagnostics on the matched training set.  
+
+```{r fig.width=10, fig.height=6, message=FALSE}
+library(GGally)
+library(ggalluvial)
+
+library(dplyr)
+### relative variable is the standardized replication effect size relative to the original size (the original looks also to be standardized)
+# effect_size.o and effect_size.r are the standardized effect size of the original and standardized effect size of the replication 
+# effect_size.r was removed earlier similarly in their work along with most other post-replication variables.
+
+data_r <- data_r %>% mutate(us_lab.o = factor(us_lab.o))
+
+#selecting specific variables to view relationships, as well as a foundation to work with for diagnostics (editing and making look nice before reverting to intensive ones with the whole dataset).
+#effect size 1st for pcp, with all other quant variables in set
+data_pcp <- data_r %>% select(c('effect_size.o','length','citations','relative','n.o','power.o','n_authors.o','author_citations_max.o','authors_male.o','es_80power'))
+data_pcp_lab <- data_r %>% select(c('effect_size.o','length','citations','relative','n.o','power.o','n_authors.o','author_citations_max.o','authors_male.o','es_80power','us_lab.o'))
+#two extremely influential observations, removing below
+
+data_pcp %>% ggpairs(upper = list(continuous = GGally::wrap(ggally_cor,                                                  
+                                                 size = 4,
+                                                 color ="black",
+                                                 stars = F)))
+
+
+data_pcp %>% ggpairs(upper = list(continuous = GGally::wrap(ggally_cor,                                                  
+                                                 size = 4,
+                                                 color ="black",
+                                                 stars = F)))
+
+library(viridis)
+ggparcoord(data_pcp, scale='uniminmax', groupColumn = 'effect_size.o',  alphaLines = 0.5, title = 'PCP of Quant Variables in Dataset, Colored on Effect Size') + theme_bw() + theme(axis.text.x = element_text(angle = 90)) + scale_color_viridis_c(end = 0.8)
+
+# Alluvial plots below, used in final report but commented out due to long load times
+
+#quick alluvial test on some quant variables to make sure its working
+#ggplot(data = data_pcp_lab, aes(axis1 = citations, axis2 = length, axis3 = author_citations_max.o, axis4 = n.o, y = effect_size.o)) +
+#  scale_x_discrete(limits = c('Citations','Length','Author Max Citations','Sample Size'), expand = c(.2, .05)) +
+#  geom_alluvium(aes(fill = us_lab.o)) +
+#  geom_stratum() +
+#  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+#  theme_minimal() +
+#  ggtitle("alluvial test")
+
+
+
+
+#new variables to test categorical versions for alluvial
+#data_r2 <- data_r %>% mutate(Discipline = ifelse(disciplineCognitive==1, 'Cognitive',
+#                                                  ifelse(disciplineEconomics==1, 'Economics', 
+#                                                        ifelse(disciplineSocial==1, 'Social', 'error')))) %>%
+#                      mutate(Effect_Type = ifelse(effect_type.ointeraction==1, 'Interaction',
+#                                                  ifelse(effect_type.omaineffect==1, 'Main Effect', 'Unknown'))) %>%
+#                      mutate(Compensation = ifelse(compensation.ocredit==1, 'Credit',
+#                                                   ifelse(compensation.omixed==1, 'Mixed',
+#                                                          ifelse(compensation.onothing==1, 'Nothing',
+#                                                                 ifelse(compensation.rcredit==1, 'Credit',
+#                                                                        ifelse(compensation.rmixed==1, 'Mixed',
+#                                                                               ifelse(compensation.rnothing==1, 'Nothing', 'Unknown'))))))) %>%
+#                      mutate(Same = ifelse(same_country==1, 'Country',
+#                                           ifelse(same_language==1, 'Language',
+#                                                ifelse(same_online==1, 'Online',
+#                                                         ifelse(same_subjects==1, 'Subjects', 'None')))))
+# 
+#data_r2 <- data_r %>% mutate(citations = cut(citations, breaks=c(0,100,200,300,400,500,600,700), labels=c('0-100','100-200','200-300','300-400','400-500','500-600','600-700')))  %>% #mutate(Discipline = ifelse(disciplineCognitive==1, 'Cognitive',
+#                                                 ifelse(disciplineEconomics==1, 'Economics', 
+#                                                        ifelse(disciplineSocial==1, 'Social', 'error')))) %>%
+#                      mutate(Effect_Type = ifelse(effect_type.ointeraction==1, 'Interaction',
+#                                                  ifelse(effect_type.omaineffect==1, 'Main Effect', 'Unknown'))) %>%
+#                      mutate(Compensation = ifelse(compensation.ocredit==1, 'Credit',
+#                                                   ifelse(compensation.omixed==1, 'Mixed',
+#                                                          ifelse(compensation.onothing==1, 'Nothing',
+#                                                                 ifelse(compensation.rcredit==1, 'Credit',
+#                                                                        ifelse(compensation.rmixed==1, 'Mixed',
+#                                                                               ifelse(compensation.rnothing==1, 'Nothing', 'Unknown'))))))) %>%
+#                      mutate(Same = ifelse(same_country==1, 'Country',
+#                                           ifelse(same_language==1, 'Language',
+#                                                ifelse(same_online==1, 'Online',
+#                                                         ifelse(same_subjects==1, 'Subjects', 'None')))))
+ 
+
+#need to check into the unknown for main effect and interaction variable
+#the nothing section under compensation should be because there was originally a cash compensation variable as well that was not present in the final training model, I could add it separately as everything under 'nothing' should be 'cash', but need to double check first.
+
+#ggplot(data = data_r2, aes(axis1 = citations, axis2 = Discipline, axis3 = Effect_Type, axis4 = Compensation, axis5 = Same, y = effect_size.o)) +
+#  scale_x_discrete(limits = c('citations','Discipline','Effect Type','Compensation','Same'), expand = c(.1, .05)) +
+#  geom_alluvium(aes(fill = us_lab.o)) +
+#  geom_stratum() +
+#  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+#  theme_minimal() +
+#  ggtitle("Alluvial Test with Categorical Variavles")
+
+
+
+```
+
+### Basic Modeling
+```{r fig.width=10, fig.height=10, warning=F}
+#factoring
+
+data_r <- data_r %>% mutate(disciplineCognitive = factor(disciplineCognitive),
+                                 disciplineEconomics = factor(disciplineEconomics),
+                                 disciplineSocial = factor(disciplineSocial),
+                                 effect_type.ointeraction = factor(effect_type.ointeraction),
+                                 effect_type.omaineffect = factor(effect_type.omaineffect),
+                                 compensation.ocredit = factor(compensation.ocredit),
+                                 compensation.omixed = factor(compensation.omixed),
+                                 compensation.onothing = factor(compensation.onothing),
+                                 compensation.rcredit = factor(compensation.rcredit),
+                                 compensation.rmixed = factor(compensation.rmixed),
+                                 compensation.rnothing = factor(compensation.rnothing),
+                                 highest_seniority.rAssistantProfessor = factor(highest_seniority.rAssistantProfessor),
+                                 highest_seniority.rAssociateProfessor = factor(highest_seniority.rAssociateProfessor),
+                                 highest_seniority.rProfessor = factor(highest_seniority.rProfessor),
+                                 highest_seniority.rResearcher = factor(highest_seniority.rResearcher))
+
+
+#OLS
+lm1 <- lm(relative~disciplineSocial+disciplineEconomics+length+citations+effect_size.o+p_value.o+n.o+effect_type.ointeraction+effect_type.omaineffect+power.o+compensation.ocredit+compensation.omixed+compensation.onothing+compensation.rcredit+compensation.rmixed+compensation.rnothing+n_authors.o+n_authors.r+author_citations_max.o+authors_male.o+author_citations_max.r+authors_male.r+highest_seniority.rAssistantProfessor+highest_seniority.rAssociateProfessor+highest_seniority.rProfessor+highest_seniority.rResearcher+es_80power+same_country+same_language+same_online+same_subjects+us_lab.o+us_lab.r, data=data_r)
+
+
+
+#Both our model and theirs have an R^2 of 0.19, section 2, 3rd paragraph
+summary(lm1)
+
+#relative: The continuous outcome variable; the standardized replication effectsize relative to the original effect.
+
+#multicolinearity with discipline variable
+#alias(lm1)
+
+#table of differences between coefficients for the lasso selected variables in a linear model. 
+#Note: Their exact model was not provided
+#info in paper in paragraph above section 2.3
+compare <- matrix(c(-5.52,-13.55, 8.03,
+                    -0.04,-0.06, 0.02,
+                    -0.16,-0.28, 0.12,
+                     0.00, 0.00, 0.00,
+                    -0.15,-0.41, 0.26,
+                     0.13,-0.17, 0.04,
+                    -0.02,-0.16, 0.14,
+                    -0.45,-0.41, 0.04,
+                     0.32, 0.51, 0.19,
+                     0.00, 0.00, 0.00,
+                    -0.28,-0.26, 0.02,
+                     0.12, 0.17, 0.05,
+                    -0.02,-0.02, 0.00,
+                    -0.08,-0.08, 0.00,
+                    -0.15,-0.06, 0.09),
+                  ncol=3, byrow=TRUE)
+colnames(compare) <- c("Coeffs_Paper", "Coeffs_MyModel", "Difference")
+rownames(compare) <- c('P-Value (O)', 'Number of Authors (O)', 'Discipline: Social Psych', 'Max Author Citations (O)', 'Effect: Interaction', 'Ratio of Male Authors (R)', 'Senoirity (R): Professor', 'Compensation (O): Nothing', 'Discipline: Economics', 'Sample Size (O)', 'Senoirity (R): Researcher', 'Ratio of Male Authors (O)', 'Paper Length (O)', 'Senoirity (R): Associate Prof', 'Compensation (R): Nothing')
+compare <- as.table(compare)
+compare
+
+summary(lm1)
+
+#effects plots to test interactions and check polynomials and residuals
+library(effects)
+plot(allEffects(lm1, residuals = T), grid = T)
+```
+
+```{r warning=FALSE}
+#looking more closely at lines with bad fit and our models normality, HOV, and influence
+plot(allEffects(lm1, residuals = T), grid = T, 15)
+plot(allEffects(lm1, residuals = T), grid = T, 16)
+plot(allEffects(lm1, residuals = T), grid = T, 18)
+plot(allEffects(lm1, residuals = T), grid = T, 26)
+par(mfrow=c(2,2))
+plot(lm1, pch=20)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+### Fake Lasso
+
+
+```{r eval=FALSE, eval=FALSE}
+# Baby lasso version to test (had lots of user-errors with binary), using training data as both train/testing just for the sake of seeing if things will run. Redoing this more extensively on the actual data and seeing what I can get to match or how close to theirs.
+
+# Choosing lambda for model from 10^10 to 10^-2
+#grid <- 10^seq(10,-2,length=100)
+#x <- model.matrix(relative~., data_r)[,-1]
+#y <- data_r$relative
+
+#set.seed(126)
+#train <- sample(1:nrow(x), nrow(x)/3)
+#test = -train
+#y.test = y[test]
+
+#lasso_mod <- glmnet(x[train,], y[train], alpha=1, lambda=grid)
+#plot(lasso_mod, xlim=c(0,5), ylim=c(-0.5,0.5))
+```
+
+```{r warning=F, eval=FALSE}
+#cv.out <- cv.glmnet(x[train,],y[train],alpha=1)
+#plot(cv.out)
+#bestlam <- cv.out$lambda.min
+#lasso.pred <- predict(lasso_mod, s=bestlam, newx=x[test,])
+#mean((lasso.pred-y.test)^2) #y factor
+
+#out <- glmnet(x,y,alpha=1,lambda=grid)
+#lasso.coef=predict(out,type="coefficients",s=bestlam) 
+#lasso.coef
+```
+
+
+
+
+

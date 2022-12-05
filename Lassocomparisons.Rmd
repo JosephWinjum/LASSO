@@ -1,0 +1,152 @@
+---
+title: "Lasso comparisons"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE,
+                      warning = FALSE)
+options(show.signif.stars = FALSE)
+
+library(ggplot2)
+library(ggthemes)
+library(GGally)
+library(tidyverse)
+library(car)
+library(effects)
+library(readxl)
+library(mosaic)
+library(yarrr)
+library(psych)
+library(patchwork)
+library(mi)
+library(knitr)
+library(StatMatch)
+library(cluster)
+library(glmnet)
+theme_set(theme_bw()) 
+```
+
+### Relative Version of the Same Dataset
+
+```{r echo=FALSE}
+# Relative version of set for separate lasso testing
+
+data_r <- data2
+# Remove post-replication variables 
+data_r <- data_r %>% select(-c("pub_year", "id", "effect_size.r", "p_value.r", "n.r", "power.r",
+    "transactions", "trading_volume"))
+
+data_r <- copy(data_r) 
+
+# Adding the binary versions of each factor level, removing variables not seen in the training data in their models, and reordering to match the training data, relative version instead of outcome
+data_r <- data_r %>% mutate(disciplineCognitive = ifelse(discipline == 'Cognitive', 1, 0),
+                                 disciplineEconomics = ifelse(discipline == 'Economics', 1, 0),
+                                 disciplineSocial = ifelse(discipline == 'Social', 1, 0),
+                                 effect_type.ointeraction = ifelse(effect_type == 'interaction', 1, 0),
+                                 effect_type.omaineffect = ifelse(effect_type == 'main effect', 1, 0),
+                                 compensation.ocredit = ifelse(compensation.o == 'credit', 1, 0),
+                                 compensation.omixed = ifelse(compensation.o == 'mixed', 1, 0),
+                                 compensation.onothing = ifelse(compensation.o == 'nothing', 1, 0),
+                                 compensation.rcredit = ifelse(compensation.r == 'credit', 1, 0),
+                                 compensation.rmixed = ifelse(compensation.r == 'mixed', 1, 0),
+                                 compensation.rnothing = ifelse(compensation.r == 'nothing', 1, 0),
+                                 highest_seniority.rAssistantProfessor = ifelse(seniority.r == 'Assistant Professor', 1, 0),
+                                 highest_seniority.rAssociateProfessor = ifelse(seniority.r == 'Associate Professor', 1, 0),
+                                 highest_seniority.rProfessor = ifelse(seniority.r == 'Professor', 1, 0),
+                                 highest_seniority.rResearcher = ifelse(seniority.r == 'Researcher', 1, 0),
+                                 relative = relative_es) %>%
+                   select(-c('discipline', 'effect_type', 'compensation.o', 'compensation.r', 'replicated',
+                             'seniority.r')) %>%
+                   select('disciplineCognitive', 'disciplineEconomics', 'disciplineSocial', 'length', 'citations',
+                          'effect_size.o', 'p_value.o', 'n.o', 'effect_type.ointeraction', 'effect_type.omaineffect',
+                          'power.o', 'compensation.ocredit', 'compensation.omixed', 'compensation.onothing',
+                          'compensation.rcredit', 'compensation.rmixed', 'compensation.rnothing', 'n_authors.o',
+                          'n_authors.r', 'author_citations_max.o', 'authors_male.o', 'author_citations_max.r',
+                          'authors_male.r', 'highest_seniority.rAssistantProfessor', 
+                          'highest_seniority.rAssociateProfessor', 'highest_seniority.rProfessor',
+                          'highest_seniority.rResearcher', 'es_80power', 'same_country',
+                          'same_language', 'same_online' , 'same_subjects', 'us_lab.o', 'us_lab.r', 'relative')
+```
+
+# Their data into glmnet
+
+```{r fig.width = 10, fig.height = 6}
+load("full_models.RData", fullmodels <- new.env())
+fullmodels$fit_reg.lasso$trainingData
+#modelmat <- model.matrix(fit_reg.lasso_lm) #selected variables (not the lasso run)
+
+fulldata <- fit_reg.lasso$trainingData
+
+dataforlasso <- fit_reg.lasso_lm$data
+
+lm_theirs <- lm(.outcome ~ disciplineEconomics + disciplineSocial + length +
+    p_value.o + n.o + effect_type.ointeraction + compensation.onothing +
+    compensation.rnothing + n_authors.o + author_citations_max.o +
+    authors_male.o + authors_male.r + `highest_seniority.rAssociate Professor` +
+    highest_seniority.rProfessor + highest_seniority.rResearcher, data = dataforlasso)
+
+summary(lm_theirs)
+lambdas <- 10^seq(3, -3, by = -.05)
+
+set.seed(1234)
+cv_fit1 <- cv.glmnet(x = fulldata %>% dplyr::select(-.outcome) %>% as.matrix, y = dataforlasso$.outcome, alpha = 1, lambda = lambdas, standardize = F) #default option is to standardize all predictors with standardize = T
+
+cv_fit1
+plot(cv_fit1)
+```
+
+More on standardizing option: https://statisticaloddsandends.wordpress.com/2018/11/15/a-deep-dive-into-glmnet-standardize/
+
+# Using standardize = T option in the lasso
+
+```{r fig.width = 10, fig.height = 6}
+
+lambdas <- 10^seq(3, -3, by = -.05)
+
+set.seed(1234)
+cv_fit1s <- cv.glmnet(x = fulldata %>% dplyr::select(-.outcome) %>% as.matrix, y = dataforlasso$.outcome, alpha = 1, lambda = lambdas, standardize = T)
+
+
+cv_fit1s
+plot(cv_fit1s)
+
+par(mfrow = c(1,2))
+plot(cv_fit1$glmnet.fit)
+plot(cv_fit1s$glmnet.fit)
+
+lasso_1SE <- glmnet(x = fulldata %>% dplyr::select(-.outcome) %>% as.matrix, y = dataforlasso$.outcome, alpha = 1, lambda = 1000)
+lasso_min <- glmnet(x = fulldata %>% dplyr::select(-.outcome) %>% as.matrix, y = dataforlasso$.outcome, alpha = 1, lambda = lambdas[45])
+
+lasso_1SE$beta
+lasso_min$beta
+
+
+```
+
+
+# Scaling predictors first
+
+```{r fig.width = 10, fig.height = 6}
+library(plotmo)
+lambdas <- 10^seq(3, -3, by = -.1)
+
+set.seed(1234)
+cv_fit2s <- cv.glmnet(x = scale(fulldata %>% dplyr::select(-.outcome) %>% as.matrix), y = dataforlasso$.outcome, alpha = 1, lambda = lambdas, standardize = T)
+
+
+cv_fit2s
+plot(cv_fit2s)
+
+par(mfrow = c(1,3))
+plot(cv_fit1$glmnet.fit)
+plot(cv_fit1s$glmnet.fit)
+plot(cv_fit2s$glmnet.fit)
+
+lasso_1SE <- glmnet(x = scale(fulldata %>% dplyr::select(-.outcome) %>% as.matrix), y = dataforlasso$.outcome, alpha = 1, lambda = 1000)
+lasso_min <- glmnet(x = scale(fulldata %>% dplyr::select(-.outcome) %>% as.matrix), y = dataforlasso$.outcome, alpha = 1, lambda = lambdas[45])
+
+lasso_1SE$beta
+lasso_min$beta
+dataforlasso
+```
