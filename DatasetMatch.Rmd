@@ -33,7 +33,7 @@ library(readxl)
 ```
 
 
-### SSRP related things, not used in current version.
+### SSRP related things, used initially but not in current version.
 
 ```{r eval=FALSE, eval=FALSE}
 
@@ -333,64 +333,64 @@ data_pcp %>% ggpairs(upper = list(continuous = GGally::wrap(ggally_cor,
 library(viridis)
 ggparcoord(data_pcp, scale='uniminmax', groupColumn = 'effect_size.o',  alphaLines = 0.5, title = 'PCP of Quant Variables in Dataset, Colored on Effect Size') + theme_bw() + theme(axis.text.x = element_text(angle = 90)) + scale_color_viridis_c(end = 0.8)
 
-# Alluvial plots below, used in final report but commented out due to long load times
+#Alluvial plot testing below, cleaned up versions used in final report 
 
 #quick alluvial test on some quant variables to make sure its working
-#ggplot(data = data_pcp_lab, aes(axis1 = citations, axis2 = length, axis3 = author_citations_max.o, axis4 = n.o, y = effect_size.o)) +
-#  scale_x_discrete(limits = c('Citations','Length','Author Max Citations','Sample Size'), expand = c(.2, .05)) +
-#  geom_alluvium(aes(fill = us_lab.o)) +
-#  geom_stratum() +
-#  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
-#  theme_minimal() +
-#  ggtitle("alluvial test")
+ggplot(data = data_pcp_lab, aes(axis1 = citations, axis2 = length, axis3 = author_citations_max.o, axis4 = n.o, y = effect_size.o)) +
+  scale_x_discrete(limits = c('Citations','Length','Author Max Citations','Sample Size'), expand = c(.2, .05)) +
+  geom_alluvium(aes(fill = us_lab.o)) +
+  geom_stratum() +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+  theme_minimal() +
+  ggtitle("alluvial test")
 
 
 
 
 #new variables to test categorical versions for alluvial
-#data_r2 <- data_r %>% mutate(Discipline = ifelse(disciplineCognitive==1, 'Cognitive',
-#                                                  ifelse(disciplineEconomics==1, 'Economics', 
-#                                                        ifelse(disciplineSocial==1, 'Social', 'error')))) %>%
-#                      mutate(Effect_Type = ifelse(effect_type.ointeraction==1, 'Interaction',
-#                                                  ifelse(effect_type.omaineffect==1, 'Main Effect', 'Unknown'))) %>%
-#                      mutate(Compensation = ifelse(compensation.ocredit==1, 'Credit',
-#                                                   ifelse(compensation.omixed==1, 'Mixed',
-#                                                          ifelse(compensation.onothing==1, 'Nothing',
-#                                                                 ifelse(compensation.rcredit==1, 'Credit',
-#                                                                        ifelse(compensation.rmixed==1, 'Mixed',
-#                                                                               ifelse(compensation.rnothing==1, 'Nothing', 'Unknown'))))))) %>%
-#                      mutate(Same = ifelse(same_country==1, 'Country',
-#                                           ifelse(same_language==1, 'Language',
-#                                                ifelse(same_online==1, 'Online',
-#                                                         ifelse(same_subjects==1, 'Subjects', 'None')))))
-# 
-#data_r2 <- data_r %>% mutate(citations = cut(citations, breaks=c(0,100,200,300,400,500,600,700), labels=c('0-100','100-200','200-300','300-400','400-500','500-600','600-700')))  %>% #mutate(Discipline = ifelse(disciplineCognitive==1, 'Cognitive',
-#                                                 ifelse(disciplineEconomics==1, 'Economics', 
-#                                                        ifelse(disciplineSocial==1, 'Social', 'error')))) %>%
-#                      mutate(Effect_Type = ifelse(effect_type.ointeraction==1, 'Interaction',
-#                                                  ifelse(effect_type.omaineffect==1, 'Main Effect', 'Unknown'))) %>%
-#                      mutate(Compensation = ifelse(compensation.ocredit==1, 'Credit',
-#                                                   ifelse(compensation.omixed==1, 'Mixed',
-#                                                          ifelse(compensation.onothing==1, 'Nothing',
-#                                                                 ifelse(compensation.rcredit==1, 'Credit',
-#                                                                        ifelse(compensation.rmixed==1, 'Mixed',
-#                                                                               ifelse(compensation.rnothing==1, 'Nothing', 'Unknown'))))))) %>%
-#                      mutate(Same = ifelse(same_country==1, 'Country',
-#                                           ifelse(same_language==1, 'Language',
-#                                                ifelse(same_online==1, 'Online',
-#                                                         ifelse(same_subjects==1, 'Subjects', 'None')))))
+data_r2 <- data_r %>% mutate(Discipline = ifelse(disciplineCognitive==1, 'Cognitive',
+                                                  ifelse(disciplineEconomics==1, 'Economics', 
+                                                        ifelse(disciplineSocial==1, 'Social', 'error')))) %>%
+                      mutate(Effect_Type = ifelse(effect_type.ointeraction==1, 'Interaction',
+                                                  ifelse(effect_type.omaineffect==1, 'Main Effect', 'Unknown'))) %>%
+                      mutate(Compensation = ifelse(compensation.ocredit==1, 'Credit',
+                                                   ifelse(compensation.omixed==1, 'Mixed',
+                                                          ifelse(compensation.onothing==1, 'Nothing',
+                                                                 ifelse(compensation.rcredit==1, 'Credit',
+                                                                        ifelse(compensation.rmixed==1, 'Mixed',
+                                                                               ifelse(compensation.rnothing==1, 'Nothing', 'Unknown'))))))) %>%
+                      mutate(Same = ifelse(same_country==1, 'Country',
+                                           ifelse(same_language==1, 'Language',
+                                                ifelse(same_online==1, 'Online',
+                                                         ifelse(same_subjects==1, 'Subjects', 'None')))))
+ 
+data_r2 <- data_r %>% mutate(citations = cut(citations, breaks=c(0,100,200,300,400,500,600,700), labels=c('0-100','100-200','200-300','300-400','400-500','500-600','600-700')))  %>% mutate(Discipline = ifelse(disciplineCognitive==1, 'Cognitive',
+                                                 ifelse(disciplineEconomics==1, 'Economics', 
+                                                        ifelse(disciplineSocial==1, 'Social', 'error')))) %>%
+                      mutate(Effect_Type = ifelse(effect_type.ointeraction==1, 'Interaction',
+                                                  ifelse(effect_type.omaineffect==1, 'Main Effect', 'Unknown'))) %>%
+                      mutate(Compensation = ifelse(compensation.ocredit==1, 'Credit',
+                                                   ifelse(compensation.omixed==1, 'Mixed',
+                                                          ifelse(compensation.onothing==1, 'Nothing',
+                                                                 ifelse(compensation.rcredit==1, 'Credit',
+                                                                        ifelse(compensation.rmixed==1, 'Mixed',
+                                                                               ifelse(compensation.rnothing==1, 'Nothing', 'Unknown'))))))) %>%
+                      mutate(Same = ifelse(same_country==1, 'Country',
+                                           ifelse(same_language==1, 'Language',
+                                                ifelse(same_online==1, 'Online',
+                                                         ifelse(same_subjects==1, 'Subjects', 'None')))))
  
 
 #need to check into the unknown for main effect and interaction variable
 #the nothing section under compensation should be because there was originally a cash compensation variable as well that was not present in the final training model, I could add it separately as everything under 'nothing' should be 'cash', but need to double check first.
 
-#ggplot(data = data_r2, aes(axis1 = citations, axis2 = Discipline, axis3 = Effect_Type, axis4 = Compensation, axis5 = Same, y = effect_size.o)) +
-#  scale_x_discrete(limits = c('citations','Discipline','Effect Type','Compensation','Same'), expand = c(.1, .05)) +
-#  geom_alluvium(aes(fill = us_lab.o)) +
-#  geom_stratum() +
-#  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
-#  theme_minimal() +
-#  ggtitle("Alluvial Test with Categorical Variavles")
+ggplot(data = data_r2, aes(axis1 = citations, axis2 = Discipline, axis3 = Effect_Type, axis4 = Compensation, axis5 = Same, y = effect_size.o)) +
+  scale_x_discrete(limits = c('citations','Discipline','Effect Type','Compensation','Same'), expand = c(.1, .05)) +
+  geom_alluvium(aes(fill = us_lab.o)) +
+  geom_stratum() +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+  theme_minimal() +
+  ggtitle("Alluvial Test with Categorical Variavles")
 
 
 
@@ -428,7 +428,7 @@ summary(lm1)
 #relative: The continuous outcome variable; the standardized replication effectsize relative to the original effect.
 
 #multicolinearity with discipline variable
-#alias(lm1)
+alias(lm1)
 
 #table of differences between coefficients for the lasso selected variables in a linear model. 
 #Note: Their exact model was not provided
