@@ -93,6 +93,8 @@ set.seed(1234)
 cv_fit1 <- cv.glmnet(x = fulldata %>% dplyr::select(-.outcome) %>% as.matrix, y = dataforlasso$.outcome, alpha = 1, lambda = lambdas, standardize = F) #default option is to standardize all predictors with standardize = T
 
 cv_fit1
+
+#cross validation best selected fit
 plot(cv_fit1)
 ```
 
@@ -107,7 +109,7 @@ lambdas <- 10^seq(3, -3, by = -.05)
 set.seed(1234)
 cv_fit1s <- cv.glmnet(x = fulldata %>% dplyr::select(-.outcome) %>% as.matrix, y = dataforlasso$.outcome, alpha = 1, lambda = lambdas, standardize = T)
 
-
+# standardized cross validation best selected fit
 cv_fit1s
 plot(cv_fit1s)
 
@@ -147,6 +149,7 @@ lasso_1SE <- glmnet(x = scale(fulldata %>% dplyr::select(-.outcome) %>% as.matri
 lasso_min <- glmnet(x = scale(fulldata %>% dplyr::select(-.outcome) %>% as.matrix), y = dataforlasso$.outcome, alpha = 1, lambda = lambdas[45])
 
 lasso_1SE$beta
+#lasso selected variables with estimates
 lasso_min$beta
 dataforlasso
 ```
